@@ -1,13 +1,13 @@
-/**
- * VenX UI Toolkit
- * Advanced Component Patterns for the VenX Framework
+﻿/**
+ * venjs UI Toolkit
+ * Advanced Component Patterns for the venjs Framework
  * Path: examples/toolkit.js
  */
 
 // 1. SCROLLABLE VIEW (Native ScrollView)
 // Wraps children in a container that allows vertical scrolling
 const ScrollView = (children) => {
-    return venX.createElement('div', { 
+    return venjs.createElement('div', { 
         style: { 
             overflowY: 'scroll', 
             flex: 1,
@@ -19,7 +19,7 @@ const ScrollView = (children) => {
 // 2. IMAGE COMPONENT (Native Image Loader)
 // Supports remote URLs; handled by Glide (Android) or Kingfisher (iOS)
 const NativeImage = (src, width = 100, height = 100) => {
-    return venX.createElement('image', {
+    return venjs.createElement('image', {
         src: src,
         style: {
             width: width.toString(),
@@ -33,7 +33,7 @@ const NativeImage = (src, width = 100, height = 100) => {
 // 3. TEXT INPUT (Native TextField)
 // Captures user input and triggers a callback
 const InputField = (placeholder, onChange) => {
-    return venX.createElement('input', {
+    return venjs.createElement('input', {
         placeholder: placeholder,
         style: {
             borderBottom: '1',
@@ -51,7 +51,7 @@ const InputField = (placeholder, onChange) => {
 // 4. CARD COMPONENT
 // A pre-styled container with a shadow effect
 const Card = (children, style = {}) => {
-    return venX.createElement('div', {
+    return venjs.createElement('div', {
         style: {
             backgroundColor: '#FFFFFF',
             borderRadius: '12',
@@ -67,7 +67,7 @@ const Card = (children, style = {}) => {
 // 5. LOADING SPINNER
 // Renders a native activity indicator
 const Spinner = () => {
-    return venX.createElement('activityIndicator', {
+    return venjs.createElement('activityIndicator', {
         style: {
             alignSelf: 'center',
             margin: '20'
@@ -79,22 +79,22 @@ const Spinner = () => {
 
 const SocialFeedApp = () => {
     const posts = [
-        { id: 1, user: 'Myxo', text: 'VenX is taking over!' },
+        { id: 1, user: 'Myxo', text: 'venjs is taking over!' },
         { id: 2, user: 'VenJS_Bot', text: 'Brother framework connected.' },
         { id: 3, user: 'Dev_User', text: 'Wait, this is actual native code?' }
     ];
 
-    return venX.createElement('div', { style: { flex: 1, backgroundColor: '#FAFAFA' } }, [
+    return venjs.createElement('div', { style: { flex: 1, backgroundColor: '#FAFAFA' } }, [
         // App Header
-        venX.createElement('div', { 
+        venjs.createElement('div', { 
             style: { 
                 padding: '20', 
                 backgroundColor: '#2563EB', 
                 borderBottom: '1' 
             } 
         }, [
-            venX.createElement('text', { 
-                textContent: 'VenX Social', 
+            venjs.createElement('text', { 
+                textContent: 'venjs Social', 
                 style: { fontWeight: 'bold', color: '#FFFFFF', fontSize: '20' } 
             })
         ]),
@@ -103,11 +103,11 @@ const SocialFeedApp = () => {
         ScrollView(
             posts.map(post => (
                 Card([
-                    venX.createElement('text', { 
+                    venjs.createElement('text', { 
                         textContent: post.user, 
                         style: { color: '#2563EB', fontWeight: 'bold' } 
                     }),
-                    venX.createElement('text', { 
+                    venjs.createElement('text', { 
                         textContent: post.text, 
                         style: { marginTop: '8', fontSize: '15' } 
                     })
@@ -126,3 +126,4 @@ const Toolkit = {
     Spinner, 
     SocialFeedApp 
 };
+

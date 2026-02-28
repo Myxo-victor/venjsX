@@ -1,20 +1,47 @@
-VenX: 
-Pure Native UI Library
-VenX is a revolutionary library that allows developers to write application UI in JavaScript using a React-like syntax, while rendering actual Native Components (Java on Android, Swift on iOS).
-Repository Structure/js: Contains venX.js (The developer API)./android: Contains VenXEngine.
-java (The Java interpreter)./ios: Contains VenXEngine.swift (The Swift interpreter)./examples: Sample implementations.How it WorksDeveloper API: You use venX.createElement to define your UI.
-The Bridge: VenX serializes your UI tree into JSON and sends it over a native bridge.
-Native Engines: The Java or Swift engine receives the JSON, clears the screen, and creates real UIButton, UITextView, or LinearLayout objects.Getting Started1. Build your UI (JavaScript)const MyApp = () => {
-    return venX.createElement('div', {}, [
-        venX.createElement('text', { textContent: 'Hello Native World!' }),
-        venX.createElement('button', { textContent: 'Click Me' })
-    ]);
-};
+﻿# venjsX
 
-venX.mount(MyApp);
-2. Connect to Android (Java)In your MainActivity.java, initialize the engine:VenXEngine engine = new VenXEngine(this, findViewById(R.id.root_container));
-webView.addJavascriptInterface(engine, "Android");
-3. Connect to iOS (Swift)In your ViewController.swift, add the script handler:let engine = VenXEngine(controller: self, container: self.view)
-contentController.add(engine, name: "processUINode")
-Why VenX?Unlike traditional cross-platform frameworks, VenX is designed to be lightweight. You clone the repo, drop the engine files into your native project, and start building with JS without needing a massive build system.
-Created by Myxo Victor @ Aximon
+venjsX is a lightweight cross-platform mobile framework for building native Android and iOS UI with vanilla JavaScript.
+
+## What is included
+- Core API: `js/venjsX.js`
+- Android runnable shell: `android/`
+- iOS runnable shell: `ios/venjsX.xcodeproj`
+- JS app examples: `examples/`
+
+## API
+- `venjs.createElement(tag, props, children)`
+- `venjs.div(props, children)`
+- `venjs.text(props, children)`
+- `venjs.button(props, children)`
+- `venjs.state(initialValue)`
+- `venjs.rerender()`
+- `venjs.mount(App)`
+
+## Phase 5 Runtime Features
+- Native click events are routed back into JS handlers via `onClick` / `onPress` / `events.click`.
+- Native input change events are routed via `onChange` / `events.change`.
+- Reactive state updates are supported with `venjs.state(...).set(...)`, which auto-rerenders.
+- Basic style mapping is enabled on Android + iOS for:
+`backgroundColor`, `padding`, `margin*`, `fontSize`, `fontWeight`, `color`, `textAlign`, `borderRadius`, `flexDirection`, `alignItems`, `gap`, `width`, `height`
+- Supported native tags:
+`div`, `text`, `button`, `input`, `image`, `activityIndicator`
+
+## Quick example
+```js
+const App = () => venjs.div({ style: { padding: '16' } }, [
+  venjs.text({ textContent: `Count: ${count.get()}` }),
+  venjs.button({
+    textContent: 'Increment',
+    onClick: () => {
+      count.set((v) => v + 1);
+    }
+  })
+]);
+
+const count = venjs.state(0);
+venjs.mount(App);
+```
+
+## Build
+- Android: open `android/` in Android Studio.
+- iOS: open `ios/venjsX.xcodeproj` in Xcode.

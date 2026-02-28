@@ -1,63 +1,67 @@
-/**
- * VenX Developer Workspace (iOS)
- * Path: ios/app/main.js
- * * This is the primary entry point for the iOS version of your app.
- * The venX engine on iOS will execute this code and translate 
- * these elements into Native Apple UIKit components.
- */
+const username = venjs.state('');
+const taps = venjs.state(0);
 
-const App = () => {
-    return venX.createElement('div', { 
-        style: { 
-            padding: '30', 
-            backgroundColor: '#F9FAFB',
-            flex: 1,
-            justifyContent: 'center'
-        } 
-    }, [
-        // Renders as a Native UILabel
-        venX.createElement('text', { 
-            textContent: 'VenX iOS Native',
-            style: { 
-                fontSize: '32', 
-                fontWeight: 'bold', 
-                color: '#007AFF', // Classic iOS Blue
-                textAlign: 'center',
-                marginBottom: '20'
-            } 
-        }),
+const App = () => venjs.div({
+  style: {
+    padding: '20',
+    backgroundColor: '#FFFFFF'
+  }
+}, [
+  venjs.text({
+    textContent: 'venjsX Phase 5 Demo',
+    style: {
+      fontSize: '24',
+      fontWeight: 'bold',
+      color: '#111827',
+      marginBottom: '8'
+    }
+  }),
+  venjs.text({
+    textContent: `Hello ${username.get() || 'Developer'}`,
+    style: {
+      fontSize: '16',
+      color: '#374151',
+      marginBottom: '12'
+    }
+  }),
+  venjs.input({
+    placeholder: 'Type your name',
+    value: username.get(),
+    style: {
+      fontSize: '16',
+      color: '#1F2937',
+      marginBottom: '12'
+    },
+    onChange: (payload) => {
+      username.set(payload.value || '');
+    }
+  }),
+  venjs.image({
+    src: 'https://picsum.photos/600/320',
+    style: {
+      width: '100%',
+      height: '160',
+      borderRadius: '10',
+      marginBottom: '12'
+    }
+  }),
+  venjs.activityIndicator({
+    style: {
+      marginBottom: '12'
+    }
+  }),
+  venjs.button({
+    textContent: `Tap Count: ${taps.get()}`,
+    style: {
+      backgroundColor: '#2563EB',
+      color: '#FFFFFF',
+      borderRadius: '12',
+      padding: '14'
+    },
+    onClick: () => {
+      taps.set((current) => current + 1);
+    }
+  })
+]);
 
-        // Renders as a Native UILabel
-        venX.createElement('text', { 
-            textContent: 'This interface is rendered using pure Swift UIKit components, driven by JavaScript logic.',
-            style: { 
-                fontSize: '18', 
-                color: '#3A3A3C',
-                textAlign: 'center',
-                lineHeight: '26'
-            } 
-        }),
-
-        // Renders as a Native UIButton
-        venX.createElement('button', { 
-            textContent: 'iOS Native Action',
-            style: { 
-                marginTop: '40', 
-                backgroundColor: '#007AFF', 
-                color: '#FFFFFF',
-                borderRadius: '12',
-                padding: '18'
-            },
-            events: {
-                click: () => {
-                    // This is sent to VenXEngine.swift via WKScriptMessageHandler
-                    console.log("iOS Native Button Pressed");
-                }
-            }
-        })
-    ]);
-};
-
-// Mount to the iOS Root View
-// The first argument is null because iOS uses a native container, not a DOM element.
-venX.mount(null, App);
+venjs.mount(App);
