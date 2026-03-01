@@ -2,13 +2,16 @@ package com.venjsx.core
 
 import android.app.Activity
 import android.app.DatePickerDialog
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.text.Editable
 import android.text.InputType
@@ -237,6 +240,7 @@ class VenjsXEngine(
       else -> when (node.tag) {
       "button" -> view is Button
       "text" -> view is TextView
+      "a" -> view is TextView
       "input" -> view is EditText
       "image" -> view is ImageView
       "activityIndicator" -> view is ProgressBar
@@ -287,6 +291,7 @@ class VenjsXEngine(
       else -> when (node.tag) {
       "button" -> Button(context)
       "text" -> TextView(context)
+      "a" -> TextView(context)
       "input" -> EditText(context)
       "image" -> ImageView(context).apply {
         adjustViewBounds = true
@@ -349,6 +354,21 @@ class VenjsXEngine(
         setupClickEvent(tv, node.props, node.tag)
       }
 
+      node.tag == "a" -> {
+        val tv = view as TextView
+        tv.text = node.props.optString(
+          "textContent",
+          node.props.optString("label", node.props.optString("href", ""))
+        )
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        applyTextStyle(tv, mergedStyle(node.style, "myfont").apply {
+          if (!has("color")) {
+            put("color", "#0B5DFF")
+          }
+        })
+        setupClickEvent(tv, node.props, node.tag)
+      }
+
       node.tag == "input" -> {
         val input = view as EditText
         applyInputType(input, node.props)
@@ -395,22 +415,65 @@ class VenjsXEngine(
   private fun setupClickEvent(view: View, props: JSONObject, tag: String) {
     val events = props.optJSONObject("events")
     val clickEventId = events?.optInt("click", -1) ?: -1
-    if (clickEventId <= 0) {
+    val href = if (tag == "a") props.optString("href", "").trim() else ""
+    val shouldOpenLink = href.isNotEmpty()
+    if (clickEventId <= 0 && !shouldOpenLink) {
       view.setOnClickListener(null)
       return
     }
 
     view.setOnClickListener {
       try {
+        if (shouldOpenLink) {
+          openUrlInChrome(href)
+        }
         val payload = JSONObject().apply {
           put("type", "click")
           put("tag", tag)
           put("platform", "android")
+          if (shouldOpenLink) {
+            put("href", href)
+          }
           put("timestamp", System.currentTimeMillis())
         }
-        emitEvent(clickEventId, payload)
+        if (clickEventId > 0) {
+          emitEvent(clickEventId, payload)
+        }
       } catch (_: Exception) {
       }
+    }
+  }
+
+  private fun openUrlInChrome(rawUrl: String) {
+    if (rawUrl.isBlank()) return
+    val normalizedUrl = if (
+      rawUrl.startsWith("http://", ignoreCase = true) ||
+      rawUrl.startsWith("https://", ignoreCase = true)
+    ) rawUrl else "https://$rawUrl"
+
+    val uri = try {
+      Uri.parse(normalizedUrl)
+    } catch (_: Exception) {
+      return
+    }
+
+    val chromeIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+      setPackage("com.android.chrome")
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    try {
+      context.startActivity(chromeIntent)
+    } catch (_: ActivityNotFoundException) {
+      try {
+        context.startActivity(fallbackIntent)
+      } catch (_: Exception) {
+      }
+    } catch (_: Exception) {
     }
   }
 

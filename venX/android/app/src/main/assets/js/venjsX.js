@@ -10,7 +10,7 @@ const venjs = {
   _rootComponent: null,
   _errorHandler: null,
   _nativeEventContext: null,
-  _ANIM_TEXT_TAGS: { text: true, button: true },
+  _ANIM_TEXT_TAGS: { text: true, button: true, a: true },
   _FA_ICONS: {
     check: '\uf00c',
     close: '\uf00d',
@@ -237,6 +237,114 @@ const venjs = {
   checkbox: (...args) => venjs.createElement('checkbox', ...args),
   icon: (...args) => venjs.createElement('icon', ...args),
   activityIndicator: (...args) => venjs.createElement('activityIndicator', ...args),
+  a: (...args) => venjs.createElement('a', ...args),
+
+  api: {
+    connect: async (request = {}) => {
+      const options = typeof request === 'string' ? { url: request } : { ...(request || {}) };
+      const url = typeof options.url === 'string' ? options.url.trim() : '';
+      if (!url) {
+        throw new Error('venjs.api.connect requires a url.');
+      }
+
+      const method = String(options.method || 'GET').toUpperCase();
+      const headers = options.headers && typeof options.headers === 'object' ? { ...options.headers } : {};
+      const params = options.params && typeof options.params === 'object' ? options.params : null;
+      const timeoutMs = Number.isFinite(options.timeoutMs) ? Number(options.timeoutMs) : 15000;
+      const responseType = String(options.responseType || 'json').toLowerCase();
+
+      let finalUrl = url;
+      if (params) {
+        const searchParams = new URLSearchParams();
+        Object.keys(params).forEach((key) => {
+          const value = params[key];
+          if (value === undefined || value === null) return;
+          searchParams.append(key, String(value));
+        });
+        const qs = searchParams.toString();
+        if (qs) {
+          finalUrl += (finalUrl.includes('?') ? '&' : '?') + qs;
+        }
+      }
+
+      const fetchOptions = {
+        method,
+        headers,
+        credentials: options.credentials || 'omit'
+      };
+
+      const hasBody = options.body !== undefined && options.body !== null && method !== 'GET' && method !== 'HEAD';
+      if (hasBody) {
+        const body = options.body;
+        const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+        const isPlainObject = body && typeof body === 'object' && !Array.isArray(body) && !isFormData;
+        const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === 'content-type');
+
+        if (isPlainObject) {
+          fetchOptions.body = JSON.stringify(body);
+          if (!hasContentType) {
+            fetchOptions.headers['Content-Type'] = 'application/json';
+          }
+        } else {
+          fetchOptions.body = body;
+        }
+      }
+
+      let timeoutId = null;
+      if (typeof AbortController !== 'undefined' && timeoutMs > 0) {
+        const controller = new AbortController();
+        fetchOptions.signal = controller.signal;
+        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      }
+
+      try {
+        const response = await fetch(finalUrl, fetchOptions);
+        const responseHeaders = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
+
+        let data = null;
+        if (responseType === 'text') {
+          data = await response.text();
+        } else if (responseType === 'blob') {
+          data = await response.blob();
+        } else if (responseType === 'arraybuffer') {
+          data = await response.arrayBuffer();
+        } else {
+          const rawText = await response.text();
+          if (rawText) {
+            try {
+              data = JSON.parse(rawText);
+            } catch (_) {
+              data = rawText;
+            }
+          }
+        }
+
+        return {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+          data
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          statusText: error && error.name ? String(error.name) : 'NetworkError',
+          headers: {},
+          data: null,
+          error: error && error.message ? String(error.message) : String(error)
+        };
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+    }
+  },
 
   // Simple reactive state holder for framework apps.
   state: (initialValue) => {

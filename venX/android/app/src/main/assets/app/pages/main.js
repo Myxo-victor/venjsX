@@ -126,7 +126,8 @@ venjs.button({
     outline:'none',
     padding:'10px',
    margin:'10px auto'
-  }
+  },
+  onClick:() => alert('We aren\'t yet done developing this mobile app please try again later')
 },'Sign in'),
 
 venjs.text({
@@ -154,7 +155,7 @@ venjs.button({
  venjs.image({
             src: './images/from Aximon (Black).png',
             style:{
-              width: '50px',
+              width: '90px',
               height:'auto',
               display: 'block',
               margin: '10px auto',
