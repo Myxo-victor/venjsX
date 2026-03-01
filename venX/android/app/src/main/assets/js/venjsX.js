@@ -11,6 +11,26 @@ const venjs = {
   _errorHandler: null,
   _nativeEventContext: null,
   _ANIM_TEXT_TAGS: { text: true, button: true },
+  _FA_ICONS: {
+    check: '\uf00c',
+    close: '\uf00d',
+    times: '\uf00d',
+    plus: '\uf067',
+    minus: '\uf068',
+    home: '\uf015',
+    user: '\uf007',
+    cog: '\uf013',
+    settings: '\uf013',
+    search: '\uf002',
+    trash: '\uf1f8',
+    heart: '\uf004',
+    star: '\uf005',
+    bell: '\uf0f3',
+    edit: '\uf044',
+    save: '\uf0c7',
+    arrowLeft: '\uf060',
+    arrowRight: '\uf061'
+  },
 
   _registerEventHandler: (handler) => {
     if (venjs._eventHandlerIds.has(handler)) {
@@ -82,6 +102,12 @@ const venjs = {
       })
       .join('');
     return text;
+  },
+
+  _resolveFaIcon: (name) => {
+    if (!name) return '';
+    const key = String(name).trim();
+    return venjs._FA_ICONS[key] || venjs._FA_ICONS[key.toLowerCase()] || '';
   },
 
   _serializeNode: (node) => {
@@ -182,6 +208,19 @@ const venjs = {
       }
     }
 
+    if (tag === 'icon') {
+      props.style = props.style && typeof props.style === 'object' ? { ...props.style } : {};
+      if (!props.style.fontFamily) {
+        props.style.fontFamily = 'Font Awesome 6 Free';
+      }
+      if (props.textContent === undefined || props.textContent === null) {
+        const glyph = venjs._resolveFaIcon(props.name);
+        if (glyph) {
+          props.textContent = glyph;
+        }
+      }
+    }
+
     return {
       tag,
       props,
@@ -195,6 +234,8 @@ const venjs = {
   button: (...args) => venjs.createElement('button', ...args),
   image: (...args) => venjs.createElement('image', ...args),
   input: (...args) => venjs.createElement('input', ...args),
+  checkbox: (...args) => venjs.createElement('checkbox', ...args),
+  icon: (...args) => venjs.createElement('icon', ...args),
   activityIndicator: (...args) => venjs.createElement('activityIndicator', ...args),
 
   // Simple reactive state holder for framework apps.

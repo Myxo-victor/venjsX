@@ -1,24 +1,29 @@
 package com.venjsx.core
 
 import android.app.Activity
+import android.app.DatePickerDialog
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.util.LruCache
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -26,10 +31,13 @@ import android.widget.ProgressBar
 import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.res.ResourcesCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Calendar
+import java.util.Locale
 import kotlin.concurrent.thread
 import kotlin.math.max
 import kotlin.math.min
@@ -51,9 +59,28 @@ class VenjsXEngine(
     val children: List<VNode>
   )
 
+  private data class ResolvedMargins(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val autoHorizontal: Boolean,
+    val autoVertical: Boolean
+  )
+
   private var mountedScrollView: ScrollView? = null
   private var mountedRootView: View? = null
   private var previousTree: VNode? = null
+  private val defaultTypeface: Typeface? by lazy { loadFontByNames(listOf("myfont", "ibm_plex_sans")) }
+  private val fontAwesomeTypeface: Typeface? by lazy {
+    loadFontByNames(
+      listOf(
+        "font_awesome_6_free_solid_900",
+        "font_awesome",
+        "fontawesome"
+      )
+    )
+  }
 
   private val imageCache: LruCache<String, Bitmap> = run {
     val maxKb = (Runtime.getRuntime().maxMemory() / 1024).toInt()
@@ -115,7 +142,7 @@ class VenjsXEngine(
     rootLayout.removeAllViews()
     val rendered = renderNode(tree)
     val scrollView = ScrollView(context).apply {
-      setFillViewport(true)
+      setFillViewport(false)
       isSmoothScrollingEnabled = true
       layoutParams = ViewGroup.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -149,7 +176,7 @@ class VenjsXEngine(
     newNode: VNode,
     indexInParent: Int
   ): View {
-    if (oldNode.tag != newNode.tag || !isViewCompatibleWithTag(currentView, oldNode.tag)) {
+    if (oldNode.tag != newNode.tag || !isViewCompatibleWithNode(currentView, oldNode)) {
       return renderNode(newNode)
     }
 
@@ -203,15 +230,28 @@ class VenjsXEngine(
     return currentView
   }
 
-  private fun isViewCompatibleWithTag(view: View, tag: String): Boolean {
-    return when (tag) {
+  private fun isViewCompatibleWithNode(view: View, node: VNode): Boolean {
+    return when {
+      isCheckboxNode(node) -> view is CheckBox
+      isIconNode(node) -> view is TextView
+      else -> when (node.tag) {
       "button" -> view is Button
       "text" -> view is TextView
       "input" -> view is EditText
       "image" -> view is ImageView
       "activityIndicator" -> view is ProgressBar
       else -> view is LinearLayout
+      }
     }
+  }
+
+  private fun isCheckboxNode(node: VNode): Boolean {
+    return node.tag == "checkbox" ||
+      (node.tag == "input" && node.props.optString("type", "").equals("checkbox", ignoreCase = true))
+  }
+
+  private fun isIconNode(node: VNode): Boolean {
+    return node.tag == "icon"
   }
 
   private fun renderNode(node: VNode): View {
@@ -241,13 +281,17 @@ class VenjsXEngine(
       return horizontalScroll
     }
 
-    val view = when (node.tag) {
+    val view = when {
+      isCheckboxNode(node) -> CheckBox(context)
+      isIconNode(node) -> TextView(context)
+      else -> when (node.tag) {
       "button" -> Button(context)
       "text" -> TextView(context)
       "input" -> EditText(context)
       "image" -> ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
       "activityIndicator" -> ProgressBar(context).apply { isIndeterminate = true }
       else -> LinearLayout(context)
+      }
     }
 
     bindView(view, node)
@@ -262,8 +306,31 @@ class VenjsXEngine(
   }
 
   private fun bindView(view: View, node: VNode) {
-    when (node.tag) {
-      "button" -> {
+    when {
+      isCheckboxNode(node) -> {
+        val checkbox = view as CheckBox
+        checkbox.text = node.props.optString("textContent", node.props.optString("label", ""))
+        val checked = when {
+          node.props.has("checked") -> node.props.optBoolean("checked", false)
+          else -> node.props.optString("value", "false").equals("true", ignoreCase = true)
+        }
+        if (checkbox.isChecked != checked) {
+          checkbox.isChecked = checked
+        }
+        applyTextStyle(checkbox, node.style)
+        setupCheckboxChangeEvent(checkbox, node.props)
+        setupClickEvent(checkbox, node.props, "checkbox")
+      }
+
+      isIconNode(node) -> {
+        val tv = view as TextView
+        tv.text = node.props.optString("textContent", "")
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+        applyTextStyle(tv, mergedStyle(node.style, "Font Awesome 6 Free"))
+        setupClickEvent(tv, node.props, node.tag)
+      }
+
+      node.tag == "button" -> {
         val btn = view as Button
         btn.text = node.props.optString("textContent", "")
         btn.isAllCaps = false
@@ -271,7 +338,7 @@ class VenjsXEngine(
         setupClickEvent(btn, node.props, node.tag)
       }
 
-      "text" -> {
+      node.tag == "text" -> {
         val tv = view as TextView
         tv.text = node.props.optString("textContent", "")
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
@@ -279,8 +346,9 @@ class VenjsXEngine(
         setupClickEvent(tv, node.props, node.tag)
       }
 
-      "input" -> {
+      node.tag == "input" -> {
         val input = view as EditText
+        applyInputType(input, node.props)
         val nextHint = node.props.optString("placeholder", "")
         if (input.hint?.toString() != nextHint) {
           input.hint = nextHint
@@ -295,7 +363,7 @@ class VenjsXEngine(
         setupClickEvent(input, node.props, node.tag)
       }
 
-      "image" -> {
+      node.tag == "image" -> {
         val image = view as ImageView
         val src = node.props.optString("src", "")
         if ((image.tag as? String) != src) {
@@ -305,7 +373,7 @@ class VenjsXEngine(
         setupClickEvent(image, node.props, node.tag)
       }
 
-      "activityIndicator" -> {
+      node.tag == "activityIndicator" -> {
         setupClickEvent(view, node.props, node.tag)
       }
 
@@ -370,6 +438,30 @@ class VenjsXEngine(
 
       override fun afterTextChanged(s: Editable?) {}
     })
+  }
+
+  private fun setupCheckboxChangeEvent(input: CheckBox, props: JSONObject) {
+    val events = props.optJSONObject("events")
+    val changeEventId = events?.optInt("change", -1) ?: -1
+    input.setOnCheckedChangeListener(null)
+    if (changeEventId <= 0) {
+      return
+    }
+
+    input.setOnCheckedChangeListener { _, isChecked ->
+      try {
+        val payload = JSONObject().apply {
+          put("type", "change")
+          put("tag", "checkbox")
+          put("platform", "android")
+          put("checked", isChecked)
+          put("value", isChecked)
+          put("timestamp", System.currentTimeMillis())
+        }
+        emitEvent(changeEventId, payload)
+      } catch (_: Exception) {
+      }
+    }
   }
 
   private fun loadImageSource(imageView: ImageView, src: String?) {
@@ -445,9 +537,13 @@ class VenjsXEngine(
   private fun applyBaseStyle(view: View, style: JSONObject?) {
     if (style == null) return
 
+    val borderSpec = style.optString("border", "").trim()
+    val borderWidthFromShorthand = parseBorderWidth(borderSpec)
+    val borderColorFromShorthand = parseBorderColor(borderSpec)
+
     val hasRadius = style.has("borderRadius")
     val hasBackground = style.has("backgroundColor")
-    val hasBorder = style.has("borderWidth") || style.has("borderColor")
+    val hasBorder = style.has("borderWidth") || style.has("borderColor") || borderSpec.isNotEmpty()
 
     if (hasRadius || hasBackground || hasBorder) {
       val drawable = GradientDrawable().apply {
@@ -459,8 +555,15 @@ class VenjsXEngine(
       }
 
       if (hasBorder) {
-        val borderWidthPx = dp(styleInt(style, "borderWidth", 0))
-        val borderColor = parseColor(style.optString("borderColor", "#00000000"))
+        val borderWidth = if (style.has("borderWidth")) styleInt(style, "borderWidth", 0) else borderWidthFromShorthand
+        val borderWidthPx = dp(borderWidth)
+        val borderColor = if (style.has("borderColor")) {
+          parseColor(style.optString("borderColor", "#00000000"))
+        } else if (borderSpec.isNotEmpty()) {
+          borderColorFromShorthand
+        } else {
+          parseColor("#000000")
+        }
         drawable.setStroke(borderWidthPx, borderColor)
       }
 
@@ -469,17 +572,24 @@ class VenjsXEngine(
       view.setBackgroundColor(parseColor(style.optString("backgroundColor", "#00000000")))
     }
 
-    val marginDp = styleInt(style, "margin", 0)
+    val resolvedMargins = resolveMargins(style)
     val lp = LinearLayout.LayoutParams(
-      sizeFromStyle(style, "width", ViewGroup.LayoutParams.MATCH_PARENT),
-      sizeFromStyle(style, "height", ViewGroup.LayoutParams.WRAP_CONTENT)
+      sizeFromStyle(style, "width", ViewGroup.LayoutParams.MATCH_PARENT, view),
+      sizeFromStyle(style, "height", ViewGroup.LayoutParams.WRAP_CONTENT, view)
     )
     lp.setMargins(
-      dp(styleInt(style, "marginLeft", marginDp)),
-      dp(styleInt(style, "marginTop", marginDp)),
-      dp(styleInt(style, "marginRight", marginDp)),
-      dp(styleInt(style, "marginBottom", marginDp))
+      dp(resolvedMargins.left),
+      dp(resolvedMargins.top),
+      dp(resolvedMargins.right),
+      dp(resolvedMargins.bottom)
     )
+    if (resolvedMargins.autoHorizontal && resolvedMargins.autoVertical) {
+      lp.gravity = Gravity.CENTER
+    } else if (resolvedMargins.autoHorizontal) {
+      lp.gravity = Gravity.CENTER_HORIZONTAL
+    } else if (resolvedMargins.autoVertical) {
+      lp.gravity = Gravity.CENTER_VERTICAL
+    }
     view.layoutParams = lp
 
     if (style.has("borderRadius") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -496,30 +606,258 @@ class VenjsXEngine(
   }
 
   private fun applyTextStyle(view: TextView, style: JSONObject?) {
-    if (style == null) return
+    val effectiveStyle = style ?: JSONObject()
 
-    if (style.has("fontSize")) {
-      view.setTextSize(TypedValue.COMPLEX_UNIT_SP, styleInt(style, "fontSize", 16).toFloat())
+    applyTypeface(view, effectiveStyle)
+
+    if (effectiveStyle.has("fontSize")) {
+      view.setTextSize(TypedValue.COMPLEX_UNIT_SP, styleInt(effectiveStyle, "fontSize", 16).toFloat())
     }
-    if (style.has("color")) {
-      view.setTextColor(parseColor(style.optString("color", "#111111")))
+    if (effectiveStyle.has("color")) {
+      view.setTextColor(parseColor(effectiveStyle.optString("color", "#111111")))
     }
-    when (style.optString("textAlign", "")) {
+    when (effectiveStyle.optString("textAlign", "")) {
       "center" -> view.gravity = Gravity.CENTER_HORIZONTAL
       "right" -> view.gravity = Gravity.END
       else -> view.gravity = Gravity.START
     }
   }
 
-  private fun sizeFromStyle(style: JSONObject?, key: String, fallback: Int): Int {
+  private fun applyInputType(input: EditText, props: JSONObject) {
+    val type = props.optString("type", "text").trim().lowercase()
+    input.showSoftInputOnFocus = true
+    input.setOnTouchListener(null)
+    input.onFocusChangeListener = null
+    input.inputType = when (type) {
+      "password" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+      "email" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+      "number" -> InputType.TYPE_CLASS_NUMBER
+      "phone", "tel" -> InputType.TYPE_CLASS_PHONE
+      "url" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+      "multiline", "textarea" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+      "date" -> {
+        bindDatePicker(input)
+        InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE
+      }
+      else -> InputType.TYPE_CLASS_TEXT
+    }
+  }
+
+  private fun bindDatePicker(input: EditText) {
+    input.showSoftInputOnFocus = false
+    input.isFocusable = true
+    input.isFocusableInTouchMode = true
+    input.setOnTouchListener { _, event ->
+      if (event.action == MotionEvent.ACTION_UP) {
+        showDatePicker(input)
+      }
+      false
+    }
+    input.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+      if (hasFocus) {
+        showDatePicker(input)
+      }
+    }
+  }
+
+  private fun showDatePicker(input: EditText) {
+    val now = Calendar.getInstance()
+    val dialog = DatePickerDialog(
+      context,
+      { _, year, month, dayOfMonth ->
+        val value = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, dayOfMonth)
+        input.setText(value)
+        input.setSelection(value.length)
+      },
+      now.get(Calendar.YEAR),
+      now.get(Calendar.MONTH),
+      now.get(Calendar.DAY_OF_MONTH)
+    )
+    dialog.show()
+  }
+
+  private fun applyTypeface(view: TextView, style: JSONObject) {
+    val explicitFamily = style.optString("fontFamily", "").trim()
+    val baseTypeface = when {
+      explicitFamily.equals("font awesome", ignoreCase = true) ||
+        explicitFamily.equals("font awesome 6 free", ignoreCase = true) ||
+        explicitFamily.equals("fontawesome", ignoreCase = true) -> fontAwesomeTypeface
+      explicitFamily.isNotBlank() -> loadFontByNames(listOf(normalizeFontResourceName(explicitFamily)))
+      else -> defaultTypeface
+    } ?: defaultTypeface
+
+    val weight = parseFontWeight(style.opt("fontWeight"))
+    if (weight != null) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        view.typeface = Typeface.create(baseTypeface, weight, false)
+      } else {
+        val legacyStyle = if (weight >= 600) Typeface.BOLD else Typeface.NORMAL
+        view.setTypeface(baseTypeface ?: view.typeface, legacyStyle)
+      }
+      return
+    }
+
+    if (baseTypeface != null) {
+      view.typeface = baseTypeface
+    }
+  }
+
+  private fun parseFontWeight(raw: Any?): Int? {
+    return when (raw) {
+      is Number -> raw.toInt().coerceIn(100, 900)
+      is String -> {
+        val cleaned = raw.trim().lowercase()
+        when (cleaned) {
+          "", "normal", "regular" -> 400
+          "bold" -> 700
+          else -> cleaned.toIntOrNull()?.coerceIn(100, 900)
+        }
+      }
+      else -> null
+    }
+  }
+
+  private fun loadFontByNames(names: List<String>): Typeface? {
+    for (name in names) {
+      val resourceName = normalizeFontResourceName(name)
+      val resourceId = context.resources.getIdentifier(resourceName, "font", context.packageName)
+      if (resourceId != 0) {
+        try {
+          val typeface = ResourcesCompat.getFont(context, resourceId)
+          if (typeface != null) {
+            return typeface
+          }
+        } catch (_: Exception) {
+        }
+      }
+    }
+    return null
+  }
+
+  private fun normalizeFontResourceName(name: String): String {
+    return name.trim()
+      .lowercase()
+      .replace(Regex("[^a-z0-9_]+"), "_")
+      .replace(Regex("_+"), "_")
+      .trim('_')
+  }
+
+  private fun mergedStyle(style: JSONObject?, fallbackFamily: String): JSONObject {
+    if (style == null) {
+      return JSONObject().apply {
+        put("fontFamily", fallbackFamily)
+      }
+    }
+    if (style.has("fontFamily")) {
+      return style
+    }
+    return JSONObject(style.toString()).apply {
+      put("fontFamily", fallbackFamily)
+    }
+  }
+
+  private fun sizeFromStyle(style: JSONObject?, key: String, fallback: Int, view: View): Int {
     if (style == null || !style.has(key)) return fallback
 
     val value = style.optString(key, "")
     if (value == "match" || value == "100%") return ViewGroup.LayoutParams.MATCH_PARENT
-    if (value == "wrap" || value == "auto") return ViewGroup.LayoutParams.WRAP_CONTENT
+    if (value == "wrap" || value == "auto") {
+      if (key == "height") {
+        view.minimumHeight = 0
+      }
+      return ViewGroup.LayoutParams.WRAP_CONTENT
+    }
 
     val base = if (fallback == ViewGroup.LayoutParams.MATCH_PARENT) 0 else 44
     return dp(styleInt(style, key, base))
+  }
+
+  private fun resolveMargins(style: JSONObject): ResolvedMargins {
+    val marginRaw = style.optString("margin", "").trim()
+    val marginTokens = parseBoxShorthand(marginRaw)
+
+    var top = parsePxValue(marginTokens.getOrNull(0)) ?: 0
+    var right = parsePxValue(marginTokens.getOrNull(1)) ?: top
+    var bottom = parsePxValue(marginTokens.getOrNull(2)) ?: top
+    var left = parsePxValue(marginTokens.getOrNull(3)) ?: right
+
+    var autoTop = marginTokens.getOrNull(0)?.equals("auto", ignoreCase = true) == true
+    var autoRight = marginTokens.getOrNull(1)?.equals("auto", ignoreCase = true) == true
+    var autoBottom = marginTokens.getOrNull(2)?.equals("auto", ignoreCase = true) == true
+    var autoLeft = marginTokens.getOrNull(3)?.equals("auto", ignoreCase = true) == true
+
+    if (style.has("marginTop")) {
+      autoTop = isAutoValue(style.opt("marginTop"))
+      top = if (autoTop) 0 else styleInt(style, "marginTop", top)
+    }
+    if (style.has("marginRight")) {
+      autoRight = isAutoValue(style.opt("marginRight"))
+      right = if (autoRight) 0 else styleInt(style, "marginRight", right)
+    }
+    if (style.has("marginBottom")) {
+      autoBottom = isAutoValue(style.opt("marginBottom"))
+      bottom = if (autoBottom) 0 else styleInt(style, "marginBottom", bottom)
+    }
+    if (style.has("marginLeft")) {
+      autoLeft = isAutoValue(style.opt("marginLeft"))
+      left = if (autoLeft) 0 else styleInt(style, "marginLeft", left)
+    }
+
+    return ResolvedMargins(
+      left = left,
+      top = top,
+      right = right,
+      bottom = bottom,
+      autoHorizontal = autoLeft && autoRight,
+      autoVertical = autoTop && autoBottom
+    )
+  }
+
+  private fun parseBoxShorthand(value: String): List<String> {
+    if (value.isBlank()) return emptyList()
+    val tokens = value.split(Regex("\\s+")).filter { it.isNotBlank() }
+    return when (tokens.size) {
+      1 -> listOf(tokens[0], tokens[0], tokens[0], tokens[0])
+      2 -> listOf(tokens[0], tokens[1], tokens[0], tokens[1])
+      3 -> listOf(tokens[0], tokens[1], tokens[2], tokens[1])
+      else -> listOf(tokens[0], tokens[1], tokens[2], tokens[3])
+    }
+  }
+
+  private fun parsePxValue(value: String?): Int? {
+    if (value.isNullOrBlank()) return null
+    if (value.equals("auto", ignoreCase = true)) return null
+    val cleaned = value.replace("px", "").trim()
+    return cleaned.toDoubleOrNull()?.toInt()
+  }
+
+  private fun isAutoValue(raw: Any?): Boolean {
+    return raw?.toString()?.trim()?.equals("auto", ignoreCase = true) == true
+  }
+
+  private fun parseBorderWidth(border: String): Int {
+    if (border.isBlank()) return 0
+    val tokens = border.split(Regex("\\s+")).filter { it.isNotBlank() }
+    for (token in tokens) {
+      val width = parsePxValue(token)
+      if (width != null) {
+        return width
+      }
+    }
+    return 0
+  }
+
+  private fun parseBorderColor(border: String): Int {
+    if (border.isBlank()) return Color.TRANSPARENT
+    val tokens = border.split(Regex("\\s+")).filter { it.isNotBlank() }
+    for (i in tokens.indices.reversed()) {
+      val token = tokens[i]
+      val parsed = parseColor(token)
+      if (parsed != Color.TRANSPARENT || token.equals("transparent", ignoreCase = true)) {
+        return parsed
+      }
+    }
+    return parseColor("#000000")
   }
 
   private fun parseColor(value: String): Int {

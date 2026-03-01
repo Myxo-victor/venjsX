@@ -22,9 +22,9 @@ venjsX is a lightweight cross-platform mobile framework for building native Andr
 - Native input change events are routed via `onChange` / `events.change`.
 - Reactive state updates are supported with `venjs.state(...).set(...)`, which auto-rerenders.
 - Basic style mapping is enabled on Android + iOS for:
-`backgroundColor`, `padding`, `margin*`, `fontSize`, `fontWeight`, `color`, `textAlign`, `borderRadius`, `flexDirection`, `alignItems`, `gap`, `width`, `height`
+`backgroundColor`, `padding`, `margin*`, `fontSize`, `fontWeight`, `fontFamily`, `color`, `textAlign`, `borderRadius`, `flexDirection`, `alignItems`, `gap`, `width`, `height`
 - Supported native tags:
-`div`, `text`, `button`, `input`, `image`, `activityIndicator`
+`div`, `text`, `button`, `input`, `checkbox`, `icon`, `image`, `activityIndicator`
 
 ## Quick example
 ```js
