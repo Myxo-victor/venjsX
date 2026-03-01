@@ -1,217 +1,179 @@
 (function () {
-  const STORAGE_KEY = "flaskpay_todo_demo_v1";
+    /*
+ * Space mobile app login screen
+ * version v1.0 - for mobile app web -- v5.0
+*/
 
-  const theme = {
-    bg: "#F8FAFC",
-    card: "#FFFFFF",
-    text: "#0F172A",
-    sub: "#64748B",
-    primary: "#0B5DFF",
-    border: "#E2E8F0",
-    done: "#16A34A",
-    danger: "#DC2626"
-  };
-
-  const safeRead = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
+const App = () => venjs.div({
+  style:{
+    width:'100%',
+    height:'auto',
+    padding:'10px',
+    backgroundColor:'white'
+  }
+},[
+  venjs.button({
+    style:{
+      width:'150px',
+      height:'40px',
+      paddingTop:'8',
+      backgroundColor:'#f59e0b',
+      border:'none',
+      color:'white',
+      borderRadius:'6px',
+      display:'flex',
+      justifyContent:'center',
+      marginLeft:'190px',
+      fontFamily:'Arial',
+      outline:'none',
+      cursor:'pointer',
+      textAlign:'center',
+      marginTop:'20px'
     }
-  };
+  },'Go premium'),
 
-  const persist = (items) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch (e) {
-    }
-  };
-
-  const state = {
-    tasks: venjs.state(safeRead()),
-    draft: venjs.state(""),
-    filter: venjs.state("all"),
-    tab: venjs.state("todos"),
-    flash: venjs.state("")
-  };
-
-  const setFlash = (text) => {
-    state.flash.set(text);
-    setTimeout(() => {
-      if (state.flash.get() === text) state.flash.set("");
-    }, 1300);
-  };
-
-  const addTask = () => {
-    const text = state.draft.get().trim();
-    if (!text) {
-      setFlash("Type a task first.");
-      return;
-    }
-    const next = [
-      {
-        id: "t_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-        text,
-        done: false,
-        createdAt: new Date().toISOString()
-      }
-    ].concat(state.tasks.get());
-    state.tasks.set(next);
-    persist(next);
-    state.draft.set("");
-  };
-
-  const toggleTask = (id) => {
-    const next = state.tasks.get().map((t) => (t.id === id ? { ...t, done: !t.done } : t));
-    state.tasks.set(next);
-    persist(next);
-  };
-
-  const deleteTask = (id) => {
-    const next = state.tasks.get().filter((t) => t.id !== id);
-    state.tasks.set(next);
-    persist(next);
-  };
-
-  const clearCompleted = () => {
-    const next = state.tasks.get().filter((t) => !t.done);
-    state.tasks.set(next);
-    persist(next);
-    setFlash("Completed tasks cleared.");
-  };
-
-  const seedSample = () => {
-    const sample = [
-      { id: "s1", text: "Ship venjsX todo demo", done: false, createdAt: new Date().toISOString() },
-      { id: "s2", text: "Test 100 clicks without crash", done: true, createdAt: new Date().toISOString() },
-      { id: "s3", text: "Build release APK", done: false, createdAt: new Date().toISOString() }
-    ];
-    state.tasks.set(sample);
-    persist(sample);
-    setFlash("Sample tasks loaded.");
-  };
-
-  const clearAll = () => {
-    state.tasks.set([]);
-    persist([]);
-    setFlash("All tasks removed.");
-  };
-
-  const visibleTasks = () => {
-    const all = state.tasks.get();
-    const f = state.filter.get();
-    if (f === "active") return all.filter((t) => !t.done);
-    if (f === "done") return all.filter((t) => t.done);
-    return all;
-  };
-
-  const pageCtx = {
-    state,
-    theme,
-    actions: {
-      addTask,
-      toggleTask,
-      deleteTask,
-      clearCompleted,
-      seedSample,
-      clearAll,
-      setFlash
+ venjs.image({
+    style:{
+      width:'150px',
+      height:'150px',
+      display:'block',
+      padding:'5px',
+      margin:'30px auto',
     },
-    visibleTasks
-  };
+    src:'./images/logo.png'
+  }),
 
-  const tabBtn = (id, label) =>
-    venjs.div(
-      {
-        style: {
-          backgroundColor: state.tab.get() === id ? theme.primary : "#00000000",
-          borderRadius: "12",
-          padding: "10",
-          width: "120",
-          marginRight: id === "settings" ? "0" : "8"
-        },
-        onClick: () => state.tab.set(id)
-      },
-      [
-        venjs.text(
-          {
-            style: {
-              color: state.tab.get() === id ? "#FFFFFF" : theme.sub,
-              fontSize: "14",
-              textAlign: "center"
-            }
-          },
-          label
-        )
-      ]
-    );
-
-  const header = () =>
-    venjs.div(
-      {
-        style: {
-          backgroundColor: theme.card,
-          borderRadius: "14",
-          padding: "12",
-          marginBottom: "10"
-        }
-      },
-      [
-        venjs.text({ style: { fontSize: "22", color: theme.text, marginBottom: "2" } }, "Flaskpay Tasks"),
-        venjs.text({ style: { fontSize: "13", color: theme.sub } }, "Official venjsX mini demo")
-      ]
-    );
-
-  const currentPage = () => {
-    if (state.tab.get() === "settings") {
-      return window.todoPages && window.todoPages.settings
-        ? window.todoPages.settings(pageCtx)
-        : venjs.text({}, "Settings page missing.");
+venjs.text({
+   style:{
+    textAlign:'center',
+    fontSize:'24px',
+    fontWeight:'600',
+    color:'black',
+    fontFamily:'myfont'
     }
-    return window.todoPages && window.todoPages.todos
-      ? window.todoPages.todos(pageCtx)
-      : venjs.text({}, "Todos page missing.");
-  };
+},'Sign in'),
 
-  const App = () =>
-    venjs.div(
-      {
-        style: {
-          backgroundColor: theme.bg,
-          padding: "12",
-          width: "100%"
-        }
-      },
-      [
-        header(),
-        state.flash.get()
-          ? venjs.div(
-              {
-                style: {
-                  backgroundColor: "#DBEAFE",
-                  borderRadius: "10",
-                  padding: "8",
-                  marginBottom: "10"
-                }
-              },
-              [venjs.text({ style: { color: theme.primary, fontSize: "12" } }, state.flash.get())]
-            )
-          : null,
-        currentPage(),
-        venjs.div(
-          {
-            style: {
-              marginTop: "10",
-              flexDirection: "row"
+venjs.input({
+  style:{
+    width:'320px',
+    height:'40px',
+    padding:'10px',
+    border:'1px solid rgb(238, 230, 230)',
+    display:'block',
+    margin:'10px 10px 10px 10px',
+    backgroundColor:'white',
+    marginLeft:'15px',
+    marginBottom:'10px',
+    borderRadius:'6px',
+    marginTop:'10px',
+    fontSize:'14px'
+  },
+  type:'email',
+  id:'email',
+  placeholder:'Email address'
+}),
+
+venjs.input({
+  style:{
+    width:'320px',
+    height:'40px',
+    padding:'10px',
+    border:'1px solid rgb(238, 230, 230)',
+    display:'block',
+    margin:'10px 10px 10px 10px',
+    backgroundColor:'white',
+    marginLeft:'15px',
+    marginBottom:'10px',
+    borderRadius:'6px',
+    marginTop:'10px',
+    fontSize:'14px'
+  },
+  type:'password',
+  id:'password',
+  placeholder:'Password'
+}),
+
+venjs.div({
+   style:{
+     width:'200px',
+     height:'auto',
+     paddingLeft:'10px'
+   }
+},[
+  venjs.input({
+    type:'checkbox',
+    style:{
+      padding:'5px'
+    }
+  }),
+
+  venjs.text({style:{
+    fontSize:'14px',
+    color:'black',
+    marginLeft:'2px'
+  }},'Show Password')
+]),
+
+venjs.button({
+  style:{
+    width:'300px',
+    height:'40px',
+    borderRadius:'6px',
+    backgroundColor:'red',
+    color:'white',
+    textAlign:'center',
+    border:'none',
+    outline:'none',
+    padding:'10px',
+   margin:'10px auto'
+  }
+},'Sign in'),
+
+venjs.text({
+  style:{
+    textAlign:'center'
+  }
+},' ___________________or____________________'),
+
+venjs.button({
+   style:{
+    width:'300px',
+    height:'40px',
+    borderRadius:'6px',
+    backgroundColor:'black',
+    color:'white',
+    textAlign:'center',
+    border:'none',
+    outline:'none',
+     padding:'10px',
+     margin:'10px auto'
+  },
+  onClick:() => prompt('Hello world')
+},'Create a new account'),
+
+ venjs.image({
+            src: './images/from Aximon (Black).png',
+            style:{
+              width: '50px',
+              height:'auto',
+              display: 'block',
+              margin: '10px auto',
+              padding:'5px'
             }
-          },
-          [tabBtn("todos", "To‑Do"), tabBtn("settings", "Settings")]
-        )
-      ]
-    );
+        }),
+
+  venjs.text({
+    style:{
+      textAlign:'center',
+      marginTop:'10px',
+      fontSize:'14px'
+    }
+  },'© 2026 Aximon Platforms. All rights reserved')
+
+
+
+
+])
 
   venjs.mount(App);
 })();

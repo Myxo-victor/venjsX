@@ -288,7 +288,10 @@ class VenjsXEngine(
       "button" -> Button(context)
       "text" -> TextView(context)
       "input" -> EditText(context)
-      "image" -> ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+      "image" -> ImageView(context).apply {
+        adjustViewBounds = true
+        scaleType = ImageView.ScaleType.FIT_CENTER
+      }
       "activityIndicator" -> ProgressBar(context).apply { isIndeterminate = true }
       else -> LinearLayout(context)
       }
@@ -394,11 +397,9 @@ class VenjsXEngine(
     val clickEventId = events?.optInt("click", -1) ?: -1
     if (clickEventId <= 0) {
       view.setOnClickListener(null)
-      view.isClickable = false
       return
     }
 
-    view.isClickable = true
     view.setOnClickListener {
       try {
         val payload = JSONObject().apply {

@@ -21,12 +21,12 @@ class MainActivity : AppCompatActivity() {
     // Drop launch/splash theme immediately so it doesn't linger while JS boots.
     setTheme(R.style.Theme_Venjsx_App)
     super.onCreate(savedInstanceState)
-    window.statusBarColor = Color.parseColor("#0B5DFF")
+    window.statusBarColor = Color.parseColor("#FFFFFF")
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       window.navigationBarColor = Color.parseColor("#FFFFFF")
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      window.decorView.systemUiVisibility = window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+      window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
     }
 
     val appHost = FrameLayout(this).apply {
