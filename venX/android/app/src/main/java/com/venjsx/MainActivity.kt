@@ -3,13 +3,16 @@ package com.venjsx
 import android.os.Build
 import android.os.Bundle
 import android.graphics.Color
+import androidx.appcompat.app.AlertDialog
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JsResult
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.venjsx.core.VenjsXEngine
 
@@ -55,6 +58,30 @@ class MainActivity : AppCompatActivity() {
     appHost.addView(nativeRoot)
     appHost.addView(bridgeWebView)
     setContentView(appHost)
+
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val webView = bridgeWebView
+        if (webView == null) {
+          isEnabled = false
+          onBackPressedDispatcher.onBackPressed()
+          isEnabled = true
+          return
+        }
+
+        webView.evaluateJavascript(
+          "(function(){try{return (window.__venjsHandleNativeBack && window.__venjsHandleNativeBack()) ? '1' : '0';}catch(e){return '0';}})();"
+        ) { result ->
+          val normalized = result?.replace("\"", "")?.trim()
+          val consumed = normalized == "1" || normalized.equals("true", ignoreCase = true)
+          if (!consumed) {
+            isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            isEnabled = true
+          }
+        }
+      }
+    })
   }
 
   private fun configureBridgeWebView(webView: WebView) {
@@ -63,6 +90,8 @@ class MainActivity : AppCompatActivity() {
     settings.domStorageEnabled = true
     settings.allowFileAccess = true
     settings.allowContentAccess = true
+    // Always fetch fresh local assets during development.
+    settings.cacheMode = WebSettings.LOAD_NO_CACHE
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
       settings.allowFileAccessFromFileURLs = true
@@ -73,7 +102,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     webView.webViewClient = WebViewClient()
-    webView.webChromeClient = WebChromeClient()
+    webView.webChromeClient = object : WebChromeClient() {
+      override fun onJsAlert(
+        view: WebView?,
+        url: String?,
+        message: String?,
+        result: JsResult?
+      ): Boolean {
+        AlertDialog.Builder(this@MainActivity)
+          .setTitle("Message")
+          .setMessage(message ?: "")
+          .setCancelable(false)
+          .setPositiveButton("OK") { _, _ ->
+            result?.confirm()
+          }
+          .setOnCancelListener {
+            result?.cancel()
+          }
+          .show()
+        return true
+      }
+    }
+    webView.clearCache(true)
+    webView.clearHistory()
+    webView.clearFormData()
   }
 
   override fun onDestroy() {

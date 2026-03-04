@@ -56,7 +56,8 @@ const App = () => venjs.div({
       backgroundColor: '#2563EB',
       color: '#FFFFFF',
       borderRadius: '12',
-      padding: '14'
+      padding: '14',
+      textAlign:'center'
     },
     onClick: () => {
       taps.set((current) => current + 1);

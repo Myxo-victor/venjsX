@@ -21,7 +21,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     webView = WKWebView(frame: .zero, configuration: config)
 
     venjsXEngine = VenjsXEngine(controller: rootVC, container: rootVC.view, bridgeWebView: webView)
+    webView.uiDelegate = venjsXEngine
     contentController.add(venjsXEngine, name: "processUINode")
+    contentController.add(venjsXEngine, name: "openExternalURL")
 
     if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "app") {
       webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())

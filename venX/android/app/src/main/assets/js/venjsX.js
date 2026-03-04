@@ -10,6 +10,9 @@ const venjs = {
   _rootComponent: null,
   _errorHandler: null,
   _nativeEventContext: null,
+  _styleRules: [],
+  _styleRegistryReady: false,
+  _styleReloadWatchInstalled: false,
   _ANIM_TEXT_TAGS: { text: true, button: true, a: true },
   _FA_ICONS: {
     check: '\uf00c',
@@ -110,12 +113,217 @@ const venjs = {
     return venjs._FA_ICONS[key] || venjs._FA_ICONS[key.toLowerCase()] || '';
   },
 
+  _toCamelCaseStyleKey: (key) => String(key || '')
+    .trim()
+    .replace(/-([a-z])/g, (_, c) => c.toUpperCase()),
+
+  _normalizeStyleObject: (styleObj) => {
+    const normalized = {};
+    if (!styleObj || typeof styleObj !== 'object') {
+      return normalized;
+    }
+    Object.keys(styleObj).forEach((rawKey) => {
+      const key = venjs._toCamelCaseStyleKey(rawKey);
+      if (!key) return;
+      normalized[key] = styleObj[rawKey];
+    });
+    return normalized;
+  },
+
+  _extractStyleDeclarationObject: (styleDecl) => {
+    const result = {};
+    if (!styleDecl || typeof styleDecl.length !== 'number') {
+      return result;
+    }
+    for (let i = 0; i < styleDecl.length; i += 1) {
+      const prop = styleDecl[i];
+      if (!prop) continue;
+      const value = styleDecl.getPropertyValue(prop);
+      if (value === undefined || value === null) continue;
+      const normalizedValue = String(value).trim();
+      if (!normalizedValue) continue;
+      const key = venjs._toCamelCaseStyleKey(prop);
+      if (!key) continue;
+      result[key] = normalizedValue;
+    }
+    return result;
+  },
+
+  _extractClassSelectorTokens: (selectorText) => {
+    const selector = String(selectorText || '').trim();
+    if (!selector) return null;
+    if (!/^\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(selector)) {
+      return null;
+    }
+    const parts = selector.split('.').filter(Boolean).map((item) => item.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : null;
+  },
+
+  _appendRulesFromCssText: (cssText, nextRules, orderRef) => {
+    const raw = String(cssText || '');
+    if (!raw.trim()) return;
+
+    const cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const ruleRegex = /([^{}]+)\{([^{}]*)\}/g;
+    let match;
+    while ((match = ruleRegex.exec(cleaned)) !== null) {
+      const selectorChunk = String(match[1] || '').trim();
+      const declarationChunk = String(match[2] || '').trim();
+      if (!selectorChunk || !declarationChunk) continue;
+
+      const styleObj = {};
+      declarationChunk.split(';').forEach((decl) => {
+        const idx = decl.indexOf(':');
+        if (idx <= 0) return;
+        const prop = decl.slice(0, idx).trim();
+        const value = decl.slice(idx + 1).trim();
+        if (!prop || !value) return;
+        const key = venjs._toCamelCaseStyleKey(prop);
+        if (!key) return;
+        styleObj[key] = value;
+      });
+      if (Object.keys(styleObj).length === 0) continue;
+
+      selectorChunk
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach((selector) => {
+          const classes = venjs._extractClassSelectorTokens(selector);
+          if (!classes) return;
+          orderRef.value += 1;
+          nextRules.push({
+            classes,
+            specificity: classes.length,
+            order: orderRef.value,
+            style: styleObj
+          });
+        });
+    }
+  },
+
+  _loadStylesheetTextByHref: (href) => {
+    const target = String(href || '').trim();
+    if (!target || typeof XMLHttpRequest === 'undefined') return '';
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', target, false);
+      xhr.send(null);
+      if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 0) {
+        return xhr.responseText || '';
+      }
+    } catch (_err) {
+    }
+    return '';
+  },
+
+  _collectDocumentStyleRules: () => {
+    if (typeof document === 'undefined' || !document.styleSheets) {
+      venjs._styleRules = [];
+      venjs._styleRegistryReady = true;
+      return;
+    }
+
+    const nextRules = [];
+    let order = 0;
+    const orderRef = { value: 0 };
+    Array.from(document.styleSheets).forEach((sheet) => {
+      let cssRules = null;
+      try {
+        cssRules = sheet.cssRules || sheet.rules;
+      } catch (_err) {
+        cssRules = null;
+      }
+      if (!cssRules) return;
+
+      Array.from(cssRules).forEach((rule) => {
+        if (!rule || rule.type !== 1 || !rule.style || !rule.selectorText) return;
+        const styleObj = venjs._extractStyleDeclarationObject(rule.style);
+        if (Object.keys(styleObj).length === 0) return;
+
+        const selectors = String(rule.selectorText)
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+        selectors.forEach((selector) => {
+          const classes = venjs._extractClassSelectorTokens(selector);
+          if (!classes) return;
+          nextRules.push({
+            classes,
+            specificity: classes.length,
+            order: order += 1,
+            style: styleObj
+          });
+        });
+      });
+    });
+
+    orderRef.value = order;
+    Array.from(document.querySelectorAll('style')).forEach((styleTag) => {
+      venjs._appendRulesFromCssText(styleTag.textContent || '', nextRules, orderRef);
+    });
+    Array.from(document.querySelectorAll('link[rel~="stylesheet"]')).forEach((linkTag) => {
+      const href = linkTag.getAttribute('href') || '';
+      const cssText = venjs._loadStylesheetTextByHref(href);
+      venjs._appendRulesFromCssText(cssText, nextRules, orderRef);
+    });
+
+    venjs._styleRules = nextRules;
+    venjs._styleRegistryReady = true;
+  },
+
+  _ensureStyleRegistry: () => {
+    if (venjs._styleRegistryReady) return;
+    venjs._collectDocumentStyleRules();
+  },
+
+  _resolveClassStyle: (rawClassName) => {
+    venjs._ensureStyleRegistry();
+    const className = String(rawClassName || '').trim();
+    if (!className) return {};
+
+    const active = new Set(
+      className
+        .split(/\s+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    );
+    if (active.size === 0) return {};
+
+    const matches = venjs._styleRules
+      .filter((rule) => rule.classes.every((cls) => active.has(cls)))
+      .sort((a, b) => {
+        if (a.specificity !== b.specificity) {
+          return a.specificity - b.specificity;
+        }
+        return a.order - b.order;
+      });
+
+    const resolved = {};
+    matches.forEach((rule) => {
+      Object.assign(resolved, rule.style);
+    });
+    return resolved;
+  },
+
   _serializeNode: (node) => {
     if (!node || typeof node !== 'object') {
       return node;
     }
 
     const props = { ...(node.props || {}) };
+    const className = [props.className, props.class].filter(Boolean).join(' ').trim();
+    const classStyle = venjs._normalizeStyleObject(venjs._resolveClassStyle(className));
+    const inlineStyle = props.style && typeof props.style === 'object'
+      ? venjs._normalizeStyleObject(props.style)
+      : null;
+    if (Object.keys(classStyle).length > 0 || inlineStyle) {
+      props.style = { ...(classStyle || {}), ...(inlineStyle || {}) };
+    }
+    delete props.class;
+    delete props.className;
+
     const events = {};
     const sourceEvents = props.events && typeof props.events === 'object' ? props.events : {};
 
@@ -238,6 +446,24 @@ const venjs = {
   icon: (...args) => venjs.createElement('icon', ...args),
   activityIndicator: (...args) => venjs.createElement('activityIndicator', ...args),
   a: (...args) => venjs.createElement('a', ...args),
+  openExternalURL: (url) => {
+    const target = typeof url === 'string' ? url.trim() : '';
+    if (!target) return;
+
+    if (window.Android && typeof window.Android.openExternalURL === 'function') {
+      window.Android.openExternalURL(target);
+      return;
+    }
+
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openExternalURL) {
+      window.webkit.messageHandlers.openExternalURL.postMessage(target);
+      return;
+    }
+
+    if (typeof window.open === 'function') {
+      window.open(target, '_blank');
+    }
+  },
 
   api: {
     connect: async (request = {}) => {
@@ -410,7 +636,30 @@ const venjs = {
     };
 
     const current = venjs.state(normalize(options.initialRoute || '/'));
-    const navigate = (to) => current.set(normalize(to));
+    const historyStack = [current.get()];
+    const navigate = (to) => {
+      const next = normalize(to);
+      const active = current.get();
+      if (next === active) return active;
+      historyStack.push(next);
+      return current.set(next);
+    };
+    const replace = (to) => {
+      const next = normalize(to);
+      if (historyStack.length === 0) {
+        historyStack.push(next);
+      } else {
+        historyStack[historyStack.length - 1] = next;
+      }
+      return current.set(next);
+    };
+    const canGoBack = () => historyStack.length > 1;
+    const back = () => {
+      if (!canGoBack()) return false;
+      historyStack.pop();
+      current.set(historyStack[historyStack.length - 1]);
+      return true;
+    };
 
     const resolve = () => {
       const path = current.get();
@@ -421,18 +670,48 @@ const venjs = {
       return typeof page === 'function' ? page({ path, navigate }) : page;
     };
 
-    return {
+    const api = {
       path: current,
       navigate,
       push: navigate,
-      replace: navigate,
+      replace,
+      back,
+      canGoBack,
       view: () => resolve(),
       resolve
     };
+
+    if (typeof window !== 'undefined') {
+      window.__venjsHandleNativeBack = () => back();
+    }
+
+    return api;
   },
 
   setErrorHandler: (handler) => {
     venjs._errorHandler = typeof handler === 'function' ? handler : null;
+  },
+
+  reloadStyles: () => {
+    venjs._styleRegistryReady = false;
+    venjs._collectDocumentStyleRules();
+    if (typeof venjs._rootComponent === 'function') {
+      venjs.rerender();
+    }
+  },
+
+  _installStyleReloadWatch: () => {
+    if (venjs._styleReloadWatchInstalled || typeof window === 'undefined') {
+      return;
+    }
+    venjs._styleReloadWatchInstalled = true;
+    const refresh = () => venjs.reloadStyles();
+    if (typeof document !== 'undefined' && document.readyState === 'complete') {
+      window.setTimeout(refresh, 0);
+      return;
+    }
+    window.addEventListener('load', refresh, { once: true });
+    window.setTimeout(refresh, 120);
   },
 
   rerender: () => {
@@ -453,6 +732,8 @@ const venjs = {
     if (options && typeof options.onError === 'function') {
       venjs.setErrorHandler(options.onError);
     }
+    venjs._collectDocumentStyleRules();
+    venjs._installStyleReloadWatch();
     venjs._rootComponent = component;
     venjs._renderRoot();
   }

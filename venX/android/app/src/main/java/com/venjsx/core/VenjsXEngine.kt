@@ -28,12 +28,16 @@ import android.webkit.WebView
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.HorizontalScrollView
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
+import android.widget.FrameLayout
 import androidx.core.content.res.ResourcesCompat
 import org.json.JSONArray
 import org.json.JSONObject
@@ -131,7 +135,6 @@ class VenjsXEngine(
           mountedRootView = reconciled
           previousTree = parsed
         } catch (e: Exception) {
-          // Reconciliation errors should not crash user interactions.
           e.printStackTrace()
           mountFreshTree(parsed)
         }
@@ -141,9 +144,37 @@ class VenjsXEngine(
     }
   }
 
+  @JavascriptInterface
+  fun openExternalURL(url: String) {
+    if (url.isBlank()) return
+    val normalizedUrl = if (
+      url.startsWith("http://", ignoreCase = true) ||
+      url.startsWith("https://", ignoreCase = true)
+    ) url else "https://$url"
+
+    val uri = try {
+      Uri.parse(normalizedUrl)
+    } catch (_: Exception) {
+      return
+    }
+
+    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    try {
+      context.startActivity(intent)
+    } catch (_: Exception) {
+      // Log error or handle exception
+    }
+  }
+
   private fun mountFreshTree(tree: VNode) {
     rootLayout.removeAllViews()
-    val rendered = renderNode(tree)
+    val split = splitFixedNodes(tree)
+    val flowTree = split.first ?: emptyFlowRootNode()
+    val fixedNodes = split.second
+    val rendered = renderNode(flowTree)
     val scrollView = ScrollView(context).apply {
       setFillViewport(false)
       isSmoothScrollingEnabled = true
@@ -153,10 +184,140 @@ class VenjsXEngine(
       )
       addView(rendered)
     }
-    rootLayout.addView(scrollView)
+
+    val host = FrameLayout(context).apply {
+      layoutParams = ViewGroup.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT
+      )
+      addView(
+        scrollView,
+        FrameLayout.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.MATCH_PARENT
+        )
+      )
+    }
+
+    if (fixedNodes.isNotEmpty()) {
+      val overlay = FrameLayout(context).apply {
+        layoutParams = FrameLayout.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        isClickable = false
+        isFocusable = false
+      }
+
+      fixedNodes
+        .sortedBy { styleInt(it.style, "zIndex", 0) }
+        .forEach { fixedNode ->
+          val fixedView = renderNode(fixedNode)
+          applyFixedLayoutParams(fixedView, fixedNode.style)
+          overlay.addView(fixedView)
+        }
+
+      host.addView(
+        overlay,
+        FrameLayout.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.MATCH_PARENT
+        )
+      )
+    }
+
+    rootLayout.addView(host)
     mountedScrollView = scrollView
     mountedRootView = rendered
     previousTree = tree
+  }
+
+  private fun emptyFlowRootNode(): VNode {
+    val props = JSONObject().apply { put("style", JSONObject()) }
+    return VNode(
+      tag = "div",
+      props = props,
+      style = JSONObject(),
+      children = emptyList()
+    )
+  }
+
+  private fun splitFixedNodes(node: VNode): Pair<VNode?, List<VNode>> {
+    if (isFixedPosition(node.style)) {
+      return Pair(null, listOf(node))
+    }
+
+    if (node.children.isEmpty()) {
+      return Pair(node, emptyList())
+    }
+
+    val keptChildren = ArrayList<VNode>(node.children.size)
+    val fixedNodes = ArrayList<VNode>()
+    for (child in node.children) {
+      val splitChild = splitFixedNodes(child)
+      val flowChild = splitChild.first
+      if (flowChild != null) {
+        keptChildren.add(flowChild)
+      }
+      fixedNodes.addAll(splitChild.second)
+    }
+
+    return Pair(node.copy(children = keptChildren), fixedNodes)
+  }
+
+  private fun isFixedPosition(style: JSONObject?): Boolean {
+    if (style == null) return false
+    return style.optString("position", "").trim().lowercase() == "fixed"
+  }
+
+  private fun applyFixedLayoutParams(view: View, style: JSONObject?) {
+    val width = if (
+      style != null &&
+      !style.has("width") &&
+      style.has("left") &&
+      style.has("right")
+    ) {
+      ViewGroup.LayoutParams.MATCH_PARENT
+    } else {
+      sizeFromStyle(style, "width", ViewGroup.LayoutParams.WRAP_CONTENT, view)
+    }
+
+    val height = if (
+      style != null &&
+      !style.has("height") &&
+      style.has("top") &&
+      style.has("bottom")
+    ) {
+      ViewGroup.LayoutParams.MATCH_PARENT
+    } else {
+      sizeFromStyle(style, "height", ViewGroup.LayoutParams.WRAP_CONTENT, view)
+    }
+
+    val lp = FrameLayout.LayoutParams(width, height)
+
+    val hasLeft = style?.has("left") == true
+    val hasRight = style?.has("right") == true
+    val hasTop = style?.has("top") == true
+    val hasBottom = style?.has("bottom") == true
+
+    val horizontalGravity = when {
+      hasLeft && !hasRight -> Gravity.START
+      hasRight && !hasLeft -> Gravity.END
+      else -> Gravity.START
+    }
+    val verticalGravity = when {
+      hasTop && !hasBottom -> Gravity.TOP
+      hasBottom && !hasTop -> Gravity.BOTTOM
+      else -> Gravity.TOP
+    }
+    lp.gravity = horizontalGravity or verticalGravity
+
+    lp.leftMargin = if (hasLeft) dp(styleInt(style, "left", 0)) else 0
+    lp.rightMargin = if (hasRight) dp(styleInt(style, "right", 0)) else 0
+    lp.topMargin = if (hasTop) dp(styleInt(style, "top", 0)) else 0
+    lp.bottomMargin = if (hasBottom) dp(styleInt(style, "bottom", 0)) else 0
+
+    view.layoutParams = lp
   }
 
   private fun parseNode(raw: JSONObject): VNode {
@@ -242,6 +403,7 @@ class VenjsXEngine(
       "text" -> view is TextView
       "a" -> view is TextView
       "input" -> view is EditText
+      "select" -> view is Spinner
       "image" -> view is ImageView
       "activityIndicator" -> view is ProgressBar
       else -> view is LinearLayout
@@ -293,6 +455,7 @@ class VenjsXEngine(
       "text" -> TextView(context)
       "a" -> TextView(context)
       "input" -> EditText(context)
+      "select" -> Spinner(context)
       "image" -> ImageView(context).apply {
         adjustViewBounds = true
         scaleType = ImageView.ScaleType.FIT_CENTER
@@ -304,9 +467,13 @@ class VenjsXEngine(
 
     bindView(view, node)
 
-    if (view is ViewGroup && node.children.isNotEmpty()) {
-      for (child in node.children) {
-        view.addView(renderNode(child))
+    if (view is ViewGroup && node.children.isNotEmpty() && node.tag != "select") {
+      if (view is LinearLayout) {
+        addChildrenWithJustifySpacing(view, node)
+      } else {
+        for (child in node.children) {
+          view.addView(renderNode(child))
+        }
       }
     }
 
@@ -332,9 +499,29 @@ class VenjsXEngine(
 
       isIconNode(node) -> {
         val tv = view as TextView
-        tv.text = node.props.optString("textContent", "")
+        val iconName = node.props.optString("name", "").trim().lowercase()
+        val faGlyph = node.props.optString("textContent", "")
+        val fallbackGlyph = when (iconName) {
+          "search" -> "\u2315"
+          "bell" -> "\u25CE"
+          "cog", "settings" -> "\u2699"
+          "home" -> "\u2302"
+          "user" -> "\u25CB"
+          "star" -> "\u2605"
+          "heart" -> "\u2665"
+          "plus" -> "+"
+          "minus" -> "-"
+          "check" -> "\u2713"
+          "close", "times" -> "\u2715"
+          else -> faGlyph
+        }
+        tv.text = if (fontAwesomeTypeface == null) fallbackGlyph else faGlyph
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-        applyTextStyle(tv, mergedStyle(node.style, "Font Awesome 6 Free"))
+        if (fontAwesomeTypeface == null) {
+          applyTextStyle(tv, node.style)
+        } else {
+          applyTextStyle(tv, mergedStyle(node.style, "Font Awesome 6 Free"))
+        }
         setupClickEvent(tv, node.props, node.tag)
       }
 
@@ -386,6 +573,11 @@ class VenjsXEngine(
         setupClickEvent(input, node.props, node.tag)
       }
 
+      node.tag == "select" -> {
+        val spinner = view as Spinner
+        bindSelect(spinner, node)
+      }
+
       node.tag == "image" -> {
         val image = view as ImageView
         val src = node.props.optString("src", "")
@@ -409,10 +601,166 @@ class VenjsXEngine(
     }
 
     applyBaseStyle(view, node.style)
+    applyLayoutStyle(view, node.style)
     applyAnimation(view, node.style)
   }
 
+  private fun bindSelect(spinner: Spinner, node: VNode) {
+    val optionNodes = node.children.filter { it.tag == "option" }
+    val optionValues = optionNodes.map { option ->
+      val label = extractOptionText(option)
+      option.props.optString("value", label)
+    }
+    val optionLabels = optionNodes.map { option ->
+      val extracted = extractOptionText(option)
+      if (extracted.isBlank()) option.props.optString("value", "") else extracted
+    }
+
+    val safeLabels = if (optionLabels.isEmpty()) listOf("") else optionLabels
+    val adapter = object : ArrayAdapter<String>(
+      context,
+      android.R.layout.simple_spinner_item,
+      safeLabels
+    ) {
+      override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+        val row = super.getView(position, convertView, parent)
+        if (row is TextView) {
+          row.setTextColor(Color.parseColor("#111111"))
+        }
+        return row
+      }
+
+      override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+        val row = super.getDropDownView(position, convertView, parent)
+        if (row is TextView) {
+          row.setTextColor(Color.parseColor("#111111"))
+        }
+        return row
+      }
+    }
+    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    spinner.adapter = adapter
+
+    if (optionValues.isNotEmpty()) {
+      val selectedValue = node.props.optString("value", "")
+      val selectedIndex = optionValues.indexOf(selectedValue).takeIf { it >= 0 } ?: 0
+      if (spinner.selectedItemPosition != selectedIndex) {
+        try {
+          spinner.setSelection(selectedIndex, false)
+        } catch (_: Exception) {
+          spinner.setSelection(0, false)
+        }
+      }
+    }
+
+    setupSelectChangeEvent(spinner, node.props, optionValues, optionLabels)
+  }
+
+  private fun addChildrenWithJustifySpacing(layout: LinearLayout, node: VNode) {
+    val children = node.children
+    val justify = node.style?.optString("justifyContent", "")?.trim()?.lowercase() ?: ""
+    val hasMultipleChildren = children.size > 1
+    val needsSpaceBetween = hasMultipleChildren && justify == "space-between"
+    val needsSpaceAround = hasMultipleChildren && justify == "space-around"
+    val needsSpaceEvenly = hasMultipleChildren && justify == "space-evenly"
+
+    if (!needsSpaceBetween && !needsSpaceAround && !needsSpaceEvenly) {
+      for (child in children) {
+        layout.addView(renderNode(child))
+      }
+      return
+    }
+
+    val edgeWeight = when {
+      needsSpaceAround -> 0.5f
+      needsSpaceEvenly -> 1f
+      else -> 0f
+    }
+    val betweenWeight = 1f
+
+    if (edgeWeight > 0f) {
+      layout.addView(createFlexSpacer(layout.orientation, edgeWeight))
+    }
+
+    children.forEachIndexed { index, child ->
+      layout.addView(renderNode(child))
+      if (index < children.lastIndex) {
+        layout.addView(createFlexSpacer(layout.orientation, betweenWeight))
+      }
+    }
+
+    if (edgeWeight > 0f) {
+      layout.addView(createFlexSpacer(layout.orientation, edgeWeight))
+    }
+  }
+
+  private fun createFlexSpacer(orientation: Int, weight: Float): View {
+    val spacer = View(context)
+    spacer.layoutParams = if (orientation == LinearLayout.HORIZONTAL) {
+      LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight)
+    } else {
+      LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, weight)
+    }
+    return spacer
+  }
+
+  private fun extractOptionText(node: VNode): String {
+    val direct = node.props.optString("textContent", "").trim()
+    if (direct.isNotEmpty()) return direct
+    val label = node.props.optString("label", "").trim()
+    if (label.isNotEmpty()) return label
+
+    for (child in node.children) {
+      if (child.tag == "text") {
+        val value = child.props.optString("textContent", "").trim()
+        if (value.isNotEmpty()) return value
+      }
+    }
+    return node.props.optString("value", "")
+  }
+
+  private fun setupSelectChangeEvent(
+    spinner: Spinner,
+    props: JSONObject,
+    optionValues: List<String>,
+    optionLabels: List<String>
+  ) {
+    val events = props.optJSONObject("events")
+    val changeEventId = events?.optInt("change", -1) ?: -1
+    spinner.onItemSelectedListener = null
+    if (changeEventId <= 0) return
+
+    val currentValue = props.optString("value", "")
+    spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+      override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+        if (position < 0 || position >= optionValues.size) return
+        val value = optionValues[position]
+        if (value == currentValue) return
+        try {
+          val payload = JSONObject().apply {
+            put("type", "change")
+            put("tag", "select")
+            put("platform", "android")
+            put("value", value)
+            put("label", optionLabels.getOrElse(position) { value })
+            put("index", position)
+            put("timestamp", System.currentTimeMillis())
+          }
+          emitEvent(changeEventId, payload)
+        } catch (_: Exception) {
+        }
+      }
+
+      override fun onNothingSelected(parent: AdapterView<*>?) {}
+    }
+  }
+
   private fun setupClickEvent(view: View, props: JSONObject, tag: String) {
+    if (view is AdapterView<*>) {
+      // AdapterView (e.g., Spinner) throws if setOnClickListener is used directly.
+      return
+    }
+
     val events = props.optJSONObject("events")
     val clickEventId = events?.optInt("click", -1) ?: -1
     val href = if (tag == "a") props.optString("href", "").trim() else ""
@@ -605,7 +953,7 @@ class VenjsXEngine(
     val borderWidthFromShorthand = parseBorderWidth(borderSpec)
     val borderColorFromShorthand = parseBorderColor(borderSpec)
 
-    val hasRadius = style.has("borderRadius")
+    val hasRadius = style.has("borderRadius") || style.has("border-radius")
     val hasBackground = style.has("backgroundColor")
     val hasBorder = style.has("borderWidth") || style.has("borderColor") || borderSpec.isNotEmpty()
 
@@ -614,7 +962,7 @@ class VenjsXEngine(
         shape = GradientDrawable.RECTANGLE
         setColor(parseColor(style.optString("backgroundColor", "#00000000")))
         if (hasRadius) {
-          cornerRadius = dpF(styleFloat(style, "borderRadius", 0f))
+          cornerRadius = resolveBorderRadiusPx(style, view)
         }
       }
 
@@ -632,6 +980,16 @@ class VenjsXEngine(
       }
 
       view.background = drawable
+
+      if (hasRadius && isPercentBorderRadius(style)) {
+        view.post {
+          val bg = view.background as? GradientDrawable ?: return@post
+          bg.cornerRadius = resolveBorderRadiusPx(style, view)
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            view.invalidateOutline()
+          }
+        }
+      }
     } else if (style.has("backgroundColor")) {
       view.setBackgroundColor(parseColor(style.optString("backgroundColor", "#00000000")))
     }
@@ -656,10 +1014,10 @@ class VenjsXEngine(
     }
     view.layoutParams = lp
 
-    if (style.has("borderRadius") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-      val radiusPx = dpF(styleFloat(style, "borderRadius", 0f))
+    if ((style.has("borderRadius") || style.has("border-radius")) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       view.outlineProvider = object : ViewOutlineProvider() {
         override fun getOutline(v: View, outline: Outline) {
+          val radiusPx = resolveBorderRadiusPx(style, v)
           outline.setRoundRect(0, 0, v.width, v.height, radiusPx)
         }
       }
@@ -667,6 +1025,82 @@ class VenjsXEngine(
     }
 
     applyPadding(view, style)
+  }
+
+  private fun applyLayoutStyle(view: View, style: JSONObject?) {
+    if (style == null) return
+
+    when (style.optString("display", "").trim().lowercase()) {
+      "none" -> {
+        view.visibility = View.GONE
+        return
+      }
+      "flex", "block", "" -> view.visibility = View.VISIBLE
+      else -> view.visibility = View.VISIBLE
+    }
+
+    if (view is LinearLayout) {
+      applyFlexContainerAlignment(view, style)
+      return
+    }
+
+    if (view is TextView) {
+      applyTextFlexAlignment(view, style)
+    }
+  }
+
+  private fun applyFlexContainerAlignment(layout: LinearLayout, style: JSONObject) {
+    val direction = style.optString("flexDirection", "column").trim().lowercase()
+    val justify = style.optString("justifyContent", "").trim().lowercase()
+    val align = style.optString("alignItems", "").trim().lowercase()
+    val isRow = direction == "row"
+
+    var horizontal = 0
+    var vertical = 0
+
+    if (isRow) {
+      horizontal = mapHorizontalGravity(justify)
+      vertical = mapVerticalGravity(align)
+    } else {
+      vertical = mapVerticalGravity(justify)
+      horizontal = mapHorizontalGravity(align)
+    }
+
+    val resolvedGravity = horizontal or vertical
+    if (resolvedGravity != 0) {
+      layout.gravity = resolvedGravity
+    }
+  }
+
+  private fun applyTextFlexAlignment(view: TextView, style: JSONObject) {
+    val justify = style.optString("justifyContent", "").trim().lowercase()
+    val align = style.optString("alignItems", "").trim().lowercase()
+
+    val horizontal = mapHorizontalGravity(justify)
+    val vertical = mapVerticalGravity(align)
+
+    val resolvedGravity = horizontal or vertical
+    if (resolvedGravity != 0) {
+      view.gravity = resolvedGravity
+    }
+  }
+
+  private fun mapHorizontalGravity(value: String): Int {
+    return when (value) {
+      "center" -> Gravity.CENTER_HORIZONTAL
+      "flex-end" -> Gravity.END
+      "flex-start" -> Gravity.START
+      else -> 0
+    }
+  }
+
+  private fun mapVerticalGravity(value: String): Int {
+    return when (value) {
+      "center" -> Gravity.CENTER_VERTICAL
+      "flex-end" -> Gravity.BOTTOM
+      "flex-start" -> Gravity.TOP
+      else -> 0
+    }
   }
 
   private fun applyTextStyle(view: TextView, style: JSONObject?) {
@@ -692,6 +1126,10 @@ class VenjsXEngine(
     input.showSoftInputOnFocus = true
     input.setOnTouchListener(null)
     input.onFocusChangeListener = null
+    input.isFocusable = true
+    input.isFocusableInTouchMode = true
+    input.isCursorVisible = true
+    input.isLongClickable = true
     input.inputType = when (type) {
       "password" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
       "email" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
@@ -699,6 +1137,12 @@ class VenjsXEngine(
       "phone", "tel" -> InputType.TYPE_CLASS_PHONE
       "url" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
       "multiline", "textarea" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+      "select", "picker" -> {
+        input.showSoftInputOnFocus = false
+        input.isCursorVisible = false
+        input.isLongClickable = false
+        InputType.TYPE_NULL
+      }
       "date" -> {
         bindDatePicker(input)
         InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE
@@ -925,8 +1369,31 @@ class VenjsXEngine(
   }
 
   private fun parseColor(value: String): Int {
+    val raw = value.trim()
+    if (raw.isEmpty()) return Color.TRANSPARENT
+
+    val rgbMatch = Regex("""^rgb\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*\)$""", RegexOption.IGNORE_CASE)
+      .find(raw)
+    if (rgbMatch != null) {
+      val r = rgbMatch.groupValues[1].toInt().coerceIn(0, 255)
+      val g = rgbMatch.groupValues[2].toInt().coerceIn(0, 255)
+      val b = rgbMatch.groupValues[3].toInt().coerceIn(0, 255)
+      return Color.rgb(r, g, b)
+    }
+
+    val rgbaMatch = Regex("""^rgba\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]*\.?[0-9]+)\s*\)$""", RegexOption.IGNORE_CASE)
+      .find(raw)
+    if (rgbaMatch != null) {
+      val r = rgbaMatch.groupValues[1].toInt().coerceIn(0, 255)
+      val g = rgbaMatch.groupValues[2].toInt().coerceIn(0, 255)
+      val b = rgbaMatch.groupValues[3].toInt().coerceIn(0, 255)
+      val alphaRaw = rgbaMatch.groupValues[4].toFloatOrNull() ?: 1f
+      val a = if (alphaRaw > 1f) alphaRaw.toInt().coerceIn(0, 255) else (alphaRaw * 255f).toInt().coerceIn(0, 255)
+      return Color.argb(a, r, g, b)
+    }
+
     return try {
-      Color.parseColor(value)
+      Color.parseColor(raw)
     } catch (_: Exception) {
       Color.TRANSPARENT
     }
@@ -942,6 +1409,40 @@ class VenjsXEngine(
     } catch (_: Exception) {
       fallback
     }
+  }
+
+  private fun isPercentBorderRadius(style: JSONObject?): Boolean {
+    if (style == null) return false
+    val raw = when {
+      style.has("borderRadius") -> style.optString("borderRadius", "")
+      style.has("border-radius") -> style.optString("border-radius", "")
+      else -> ""
+    }
+    return raw.trim().endsWith("%")
+  }
+
+  private fun resolveBorderRadiusPx(style: JSONObject, view: View): Float {
+    val raw = when {
+      style.has("borderRadius") -> style.optString("borderRadius", "")
+      style.has("border-radius") -> style.optString("border-radius", "")
+      else -> ""
+    }.trim()
+    if (raw.isEmpty()) return 0f
+
+    if (raw.endsWith("%")) {
+      val percent = raw.removeSuffix("%").trim().toFloatOrNull() ?: return 0f
+      val widthPx = view.width.toFloat()
+      val heightPx = view.height.toFloat()
+      val base = minOf(widthPx, heightPx)
+      if (base <= 0f) return 0f
+      return (base * (percent / 100f)).coerceAtLeast(0f)
+    }
+
+    val dpValue = raw
+      .replace("px", "", ignoreCase = true)
+      .trim()
+      .toFloatOrNull() ?: return 0f
+    return dpF(dpValue)
   }
 
   private fun styleInt(style: JSONObject?, key: String, fallback: Int): Int {

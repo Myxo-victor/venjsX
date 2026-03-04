@@ -1,7 +1,7 @@
 ﻿import UIKit
 import WebKit
 
-class VenjsXEngine: NSObject, WKScriptMessageHandler {
+class VenjsXEngine: NSObject, WKScriptMessageHandler, WKUIDelegate {
   weak var rootViewController: UIViewController?
   weak var containerView: UIView?
   weak var bridgeWebView: WKWebView?
@@ -25,6 +25,12 @@ class VenjsXEngine: NSObject, WKScriptMessageHandler {
           }
         } catch {
           print("venjsX Error: \(error)")
+        }
+      }
+    } else if message.name == "openExternalURL", let urlString = message.body as? String, let url = URL(string: urlString) {
+      DispatchQueue.main.async {
+        if UIApplication.shared.canOpenURL(url) {
+          UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }
       }
     }
@@ -67,6 +73,26 @@ class VenjsXEngine: NSObject, WKScriptMessageHandler {
       field.borderStyle = .roundedRect
       field.placeholder = props["placeholder"] as? String
       field.text = props["value"] as? String
+      if let colorHex = style["color"] as? String {
+        field.textColor = parseColor(colorHex)
+      }
+      if let size = style["fontSize"] {
+        let fontSize = CGFloat(styleInt(["fontSize": size], "fontSize", defaultValue: 16))
+        field.font = .systemFont(ofSize: fontSize)
+      }
+      view = field
+    case "select":
+      let field = UITextField()
+      field.borderStyle = .roundedRect
+      field.isUserInteractionEnabled = false
+      field.text = props["value"] as? String
+      if let children = node["children"] as? [[String: Any]],
+         let firstOption = children.first,
+         let firstProps = firstOption["props"] as? [String: Any] {
+        field.placeholder = firstProps["textContent"] as? String
+      } else {
+        field.placeholder = props["placeholder"] as? String
+      }
       if let colorHex = style["color"] as? String {
         field.textColor = parseColor(colorHex)
       }
@@ -217,10 +243,19 @@ class VenjsXEngine: NSObject, WKScriptMessageHandler {
       view.backgroundColor = parseColor(colorHex)
     }
 
-    let radius = CGFloat(styleInt(style, "borderRadius", defaultValue: 0))
-    if radius > 0 {
+    if style["borderRadius"] != nil || style["border-radius"] != nil {
+      let radius = resolvedBorderRadius(for: view, style: style)
       view.layer.cornerRadius = radius
-      view.layer.masksToBounds = true
+      view.layer.masksToBounds = radius > 0
+
+      if hasPercentBorderRadius(style) {
+        DispatchQueue.main.async { [weak view] in
+          guard let view else { return }
+          let deferredRadius = self.resolvedBorderRadius(for: view, style: style)
+          view.layer.cornerRadius = deferredRadius
+          view.layer.masksToBounds = deferredRadius > 0
+        }
+      }
     }
 
     let margin = CGFloat(styleInt(style, "margin", defaultValue: 0))
@@ -292,6 +327,35 @@ class VenjsXEngine: NSObject, WKScriptMessageHandler {
     return defaultValue
   }
 
+  private func hasPercentBorderRadius(_ style: [String: Any]) -> Bool {
+    guard let raw = style["borderRadius"] ?? style["border-radius"] else { return false }
+    return String(describing: raw).trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("%")
+  }
+
+  private func resolvedBorderRadius(for view: UIView, style: [String: Any]) -> CGFloat {
+    guard let raw = style["borderRadius"] ?? style["border-radius"] else { return 0 }
+
+    if let number = raw as? NSNumber {
+      return CGFloat(number.doubleValue)
+    }
+
+    let string = String(describing: raw).trimmingCharacters(in: .whitespacesAndNewlines)
+    if string.hasSuffix("%") {
+      let percentRaw = string.replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let percent = Double(percentRaw) else { return 0 }
+      let base = min(view.bounds.width, view.bounds.height)
+      guard base > 0 else { return 0 }
+      return max(0, base * CGFloat(percent / 100.0))
+    }
+
+    let sanitized = string.replacingOccurrences(of: "px", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if let value = Double(sanitized) {
+      return max(0, CGFloat(value))
+    }
+
+    return 0
+  }
+
   private func mapAlignment(_ value: String?) -> UIStackView.Alignment {
     switch value?.lowercased() {
     case "center":
@@ -302,6 +366,21 @@ class VenjsXEngine: NSObject, WKScriptMessageHandler {
       return .fill
     default:
       return .leading
+    }
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    runJavaScriptAlertPanelWithMessage message: String,
+    initiatedByFrame frame: WKFrameInfo,
+    completionHandler: @escaping () -> Void
+  ) {
+    DispatchQueue.main.async {
+      let alert = UIAlertController(title: "Message", message: message, preferredStyle: .alert)
+      alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
+        completionHandler()
+      })
+      self.rootViewController?.present(alert, animated: true, completion: nil)
     }
   }
 }
